@@ -1,0 +1,572 @@
+{
+  "users": [
+    {
+      "id": "user-admin",
+      "name": "Super Administrator",
+      "username": "admin",
+      "passwordHash": "admin",
+      "role": "SUPER_ADMIN"
+    },
+    {
+      "id": "user-district",
+      "name": "Shri K. Sangma (DC Khasi Hills)",
+      "username": "authority",
+      "passwordHash": "authority",
+      "role": "DISTRICT_AUTHORITY",
+      "districtId": "east-khasi-hills"
+    },
+    {
+      "id": "user-officer",
+      "name": "Amit Sharma (Disaster Officer)",
+      "username": "officer",
+      "passwordHash": "officer",
+      "role": "DISASTER_OFFICER"
+    },
+    {
+      "id": "user-volunteer",
+      "name": "Lalrinkima (Field Volunteer)",
+      "username": "volunteer",
+      "passwordHash": "volunteer",
+      "role": "FIELD_VOLUNTEER",
+      "villageId": "mawsynram"
+    },
+    {
+      "id": "user-village",
+      "name": "Jadonang (Sohra Community Representative)",
+      "username": "village",
+      "passwordHash": "village",
+      "role": "VILLAGE_USER",
+      "villageId": "sohra"
+    }
+  ],
+  "districts": [
+    {
+      "id": "east-sikkim",
+      "name": "East Sikkim",
+      "riskLevel": "MEDIUM"
+    },
+    {
+      "id": "east-khasi-hills",
+      "name": "East Khasi Hills",
+      "riskLevel": "HIGH"
+    },
+    {
+      "id": "lunglei",
+      "name": "Lunglei (Mizoram)",
+      "riskLevel": "MEDIUM"
+    }
+  ],
+  "villages": [
+    {
+      "id": "sohra",
+      "name": "Sohra (Cherrapunjee)",
+      "districtId": "east-khasi-hills",
+      "estimatedPopulation": 2200,
+      "riskScore": 98,
+      "riskLevel": "CRITICAL",
+      "evacuationStatus": "IN_PROGRESS",
+      "shelterId": "sohra-school",
+      "roadStatus": "WARNING",
+      "soilMoisture": 90,
+      "rainfall": 34.8,
+      "slope": 38,
+      "elevation": 1430,
+      "latitude": 25.27,
+      "longitude": 91.73
+    },
+    {
+      "id": "mawsynram",
+      "name": "Mawsynram Village",
+      "districtId": "east-khasi-hills",
+      "estimatedPopulation": 1800,
+      "riskScore": 98,
+      "riskLevel": "CRITICAL",
+      "evacuationStatus": "IN_PROGRESS",
+      "shelterId": "mawsynram-relief",
+      "roadStatus": "WARNING",
+      "soilMoisture": 92,
+      "rainfall": 79.2,
+      "slope": 42,
+      "elevation": 1400,
+      "latitude": 25.298,
+      "longitude": 91.582
+    },
+    {
+      "id": "pakyong",
+      "name": "Pakyong Foothills",
+      "districtId": "east-sikkim",
+      "estimatedPopulation": 1200,
+      "riskScore": 98,
+      "riskLevel": "CRITICAL",
+      "evacuationStatus": "NOT_STARTED",
+      "shelterId": "pakyong-center",
+      "roadStatus": "SAFE",
+      "soilMoisture": 73,
+      "rainfall": 3.6,
+      "slope": 24,
+      "elevation": 1120,
+      "latitude": 27.225,
+      "longitude": 88.588
+    },
+    {
+      "id": "rongli",
+      "name": "Rongli Valley",
+      "districtId": "east-sikkim",
+      "estimatedPopulation": 850,
+      "riskScore": 98,
+      "riskLevel": "CRITICAL",
+      "evacuationStatus": "PREPARING",
+      "shelterId": "pakyong-center",
+      "roadStatus": "SAFE",
+      "soilMoisture": 73,
+      "rainfall": 3.6,
+      "slope": 31,
+      "elevation": 980,
+      "latitude": 27.202,
+      "longitude": 88.701
+    },
+    {
+      "id": "theiriat",
+      "name": "Theiriat Slopes",
+      "districtId": "lunglei",
+      "estimatedPopulation": 620,
+      "riskScore": 5,
+      "riskLevel": "LOW",
+      "evacuationStatus": "IN_PROGRESS",
+      "shelterId": "lunglei-hall",
+      "roadStatus": "BLOCKED",
+      "soilMoisture": 74,
+      "rainfall": 4.8,
+      "slope": 45,
+      "elevation": 1220,
+      "latitude": 22.88,
+      "longitude": 92.76
+    }
+  ],
+  "shelters": [
+    {
+      "id": "sohra-school",
+      "name": "Sohra Government High School",
+      "location": "Sohra Sector 2",
+      "capacity": 800,
+      "occupied": 520,
+      "status": "OPEN",
+      "latitude": 25.275,
+      "longitude": 91.725,
+      "facilities": [
+        "Medical Station",
+        "Drinking Water",
+        "Food Pantry",
+        "Generator Backup"
+      ]
+    },
+    {
+      "id": "mawsynram-relief",
+      "name": "Mawsynram Sports Complex Relief Camp",
+      "location": "Main Bazar Area, Mawsynram",
+      "capacity": 1000,
+      "occupied": 850,
+      "status": "NEAR_CAPACITY",
+      "latitude": 25.295,
+      "longitude": 91.585,
+      "facilities": [
+        "First Aid Wing",
+        "Separate Sanitation Rooms",
+        "Wireless Sat-Link"
+      ]
+    },
+    {
+      "id": "pakyong-center",
+      "name": "Pakyong Community Hall",
+      "location": "Near Pakyong Airport Road",
+      "capacity": 500,
+      "occupied": 120,
+      "status": "OPEN",
+      "latitude": 27.23,
+      "longitude": 88.59,
+      "facilities": [
+        "Basic Medical Aid",
+        "Potable Water"
+      ]
+    },
+    {
+      "id": "lunglei-hall",
+      "name": "Lunglei District Town Hall",
+      "location": "Lunglei Heights",
+      "capacity": 600,
+      "occupied": 480,
+      "status": "OPEN",
+      "latitude": 22.883,
+      "longitude": 92.765,
+      "facilities": [
+        "Hot Meals",
+        "Emergency Power Supply",
+        "Telecom Link"
+      ]
+    }
+  ],
+  "roads": [
+    {
+      "id": "nh-10",
+      "name": "NH-10 Highway Corridor",
+      "status": "SAFE",
+      "riskLevel": "LOW",
+      "latStart": 27.21,
+      "lngStart": 88.58,
+      "latEnd": 27.235,
+      "lngEnd": 88.6
+    },
+    {
+      "id": "sohra-shella",
+      "name": "Sohra-Shella Access Route",
+      "status": "WARNING",
+      "riskLevel": "MEDIUM",
+      "blockageReason": "Small gravel slippage, driving slow recommended",
+      "latStart": 25.26,
+      "lngStart": 91.72,
+      "latEnd": 25.28,
+      "lngEnd": 91.74
+    },
+    {
+      "id": "mawsynram-shillong",
+      "name": "Mawsynram-Shillong Highway",
+      "status": "BLOCKED",
+      "riskLevel": "HIGH",
+      "blockageReason": "Landslide debris & rockfall — road impassable",
+      "latStart": 25.29,
+      "lngStart": 91.57,
+      "latEnd": 25.31,
+      "lngEnd": 91.6
+    },
+    {
+      "id": "lunglei-tlabung",
+      "name": "Lunglei-Tlabung Road segment B",
+      "status": "BLOCKED",
+      "riskLevel": "CRITICAL",
+      "blockageReason": "Major rockfall at Milestone 24",
+      "latStart": 22.87,
+      "lngStart": 92.75,
+      "latEnd": 22.89,
+      "lngEnd": 92.77,
+      "altRouteId": "lunglei-hall"
+    }
+  ],
+  "alerts": [
+    {
+      "severity": "CRITICAL",
+      "title": "Cloudburst Landslide Alert — East Khasi Hills & Lunglei",
+      "message": "148mm rainfall in 24h with 91% saturated soil on 42° slope. Immediate evacuation required.",
+      "status": "NEW",
+      "villageId": "mawsynram",
+      "riskScore": 94,
+      "reason": "Cloudburst + saturated soil + steep terrain → FS < 1.0",
+      "id": "alert-1787545482864",
+      "timestamp": "2026-08-24T04:24:42.864Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Cloudburst Landslide Alert — East Khasi Hills & Lunglei",
+      "message": "148mm rainfall in 24h with 91% saturated soil on 42° slope. Immediate evacuation required.",
+      "status": "NEW",
+      "villageId": "mawsynram",
+      "riskScore": 94,
+      "reason": "Cloudburst + saturated soil + steep terrain → FS < 1.0",
+      "id": "alert-1787544579569",
+      "timestamp": "2026-08-24T04:09:39.569Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "CRITICAL Risk — Rongli Valley",
+      "message": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 73%, 24h rain 3.6mm on 47° slope in Sikkim.",
+      "status": "NEW",
+      "villageId": "rongli",
+      "riskScore": 98,
+      "reason": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 73%, 24h rain 3.6mm on 47° slope in Sikkim.",
+      "id": "alert-1787544148580",
+      "timestamp": "2026-08-24T04:02:28.580Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "CRITICAL Risk — Pakyong Foothills",
+      "message": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 73%, 24h rain 3.6mm on 47° slope in Sikkim.",
+      "status": "NEW",
+      "villageId": "pakyong",
+      "riskScore": 98,
+      "reason": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 73%, 24h rain 3.6mm on 47° slope in Sikkim.",
+      "id": "alert-1787544147571",
+      "timestamp": "2026-08-24T04:02:27.571Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "CRITICAL Risk — Mawsynram Village",
+      "message": "FS=0.49 (< 1.0 — failure imminent). Soil saturation 92%, 24h rain 79.2mm on 44.5° slope in Meghalaya.",
+      "status": "NEW",
+      "villageId": "mawsynram",
+      "riskScore": 98,
+      "reason": "FS=0.49 (< 1.0 — failure imminent). Soil saturation 92%, 24h rain 79.2mm on 44.5° slope in Meghalaya.",
+      "id": "alert-1787544146537",
+      "timestamp": "2026-08-24T04:02:26.537Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "CRITICAL Risk — Sohra (Cherrapunjee)",
+      "message": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 90%, 24h rain 34.8mm on 44.5° slope in Meghalaya.",
+      "status": "NEW",
+      "villageId": "sohra",
+      "riskScore": 98,
+      "reason": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 90%, 24h rain 34.8mm on 44.5° slope in Meghalaya.",
+      "id": "alert-1787544145420",
+      "timestamp": "2026-08-24T04:02:25.420Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Cloudburst Landslide Alert — East Khasi Hills & Lunglei",
+      "message": "148mm rainfall in 24h with 91% saturated soil on 42° slope. Immediate evacuation required.",
+      "status": "NEW",
+      "villageId": "mawsynram",
+      "riskScore": 94,
+      "reason": "Cloudburst + saturated soil + steep terrain → FS < 1.0",
+      "id": "alert-1787526273320",
+      "timestamp": "2026-08-23T23:04:33.320Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Cloudburst Landslide Alert — East Khasi Hills & Lunglei",
+      "message": "148mm rainfall in 24h with 91% saturated soil on 42° slope. Immediate evacuation required.",
+      "status": "NEW",
+      "villageId": "mawsynram",
+      "riskScore": 94,
+      "reason": "Cloudburst + saturated soil + steep terrain → FS < 1.0",
+      "id": "alert-1787526272328",
+      "timestamp": "2026-08-23T23:04:32.328Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "Cloudburst Landslide Alert — East Khasi Hills & Lunglei",
+      "message": "148mm rainfall in 24h with 91% saturated soil on 42° slope. Immediate evacuation required.",
+      "status": "NEW",
+      "villageId": "mawsynram",
+      "riskScore": 94,
+      "reason": "Cloudburst + saturated soil + steep terrain → FS < 1.0",
+      "id": "alert-1787526270960",
+      "timestamp": "2026-08-23T23:04:30.960Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "CRITICAL Risk — Rongli Valley",
+      "message": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 73%, 24h rain 3.6mm on 47° slope in Sikkim.",
+      "status": "NEW",
+      "villageId": "rongli",
+      "riskScore": 98,
+      "reason": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 73%, 24h rain 3.6mm on 47° slope in Sikkim.",
+      "id": "alert-1787526187145",
+      "timestamp": "2026-08-23T23:03:07.145Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "CRITICAL Risk — Pakyong Foothills",
+      "message": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 73%, 24h rain 3.6mm on 47° slope in Sikkim.",
+      "status": "NEW",
+      "villageId": "pakyong",
+      "riskScore": 98,
+      "reason": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 73%, 24h rain 3.6mm on 47° slope in Sikkim.",
+      "id": "alert-1787526186122",
+      "timestamp": "2026-08-23T23:03:06.122Z"
+    },
+    {
+      "severity": "CRITICAL",
+      "title": "CRITICAL Risk — Sohra (Cherrapunjee)",
+      "message": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 90%, 24h rain 34.8mm on 44.5° slope in Meghalaya.",
+      "status": "NEW",
+      "villageId": "sohra",
+      "riskScore": 98,
+      "reason": "FS=0.5 (< 1.0 — failure imminent). Soil saturation 90%, 24h rain 34.8mm on 44.5° slope in Meghalaya.",
+      "id": "alert-1787526184144",
+      "timestamp": "2026-08-23T23:03:04.144Z"
+    },
+    {
+      "id": "alert-1",
+      "severity": "CRITICAL",
+      "title": "Immediate Landslide Evacuation Required",
+      "message": "Extreme rain (145mm) and 88% soil moisture detected on 42° slope.",
+      "status": "IN_RESPONSE",
+      "timestamp": "2026-08-23T23:03:03.473Z",
+      "villageId": "mawsynram",
+      "riskScore": 92,
+      "reason": "Extreme rainfall + Saturated soil + Steep slope"
+    },
+    {
+      "id": "alert-2",
+      "severity": "HIGH",
+      "title": "Landslide Warning Level Orange",
+      "message": "Elevated precipitation (95mm) in Sohra region. Keep preparedness alert active.",
+      "status": "NEW",
+      "timestamp": "2026-08-23T22:33:03.474Z",
+      "villageId": "sohra",
+      "riskScore": 78,
+      "reason": "Heavy rainfall + soil moisture saturation trend"
+    }
+  ],
+  "households": [
+    {
+      "id": "hh-maw-101",
+      "villageId": "mawsynram",
+      "familyHead": "Thrangbor Rynjah",
+      "size": 5,
+      "status": "EVACUATED",
+      "lastUpdated": "2026-08-23T23:03:03.474Z"
+    },
+    {
+      "id": "hh-maw-102",
+      "villageId": "mawsynram",
+      "familyHead": "Phibarisha Syiem",
+      "size": 4,
+      "status": "EVACUATED",
+      "lastUpdated": "2026-08-23T23:03:03.474Z"
+    },
+    {
+      "id": "hh-maw-103",
+      "villageId": "mawsynram",
+      "familyHead": "Banteilang Kurkalang",
+      "size": 6,
+      "status": "EVACUATED",
+      "lastUpdated": "2026-08-24T04:04:01.349Z"
+    },
+    {
+      "id": "hh-maw-104",
+      "villageId": "mawsynram",
+      "familyHead": "Kynsaibor Lartang",
+      "size": 5,
+      "status": "UNKNOWN",
+      "lastUpdated": "2026-08-23T23:03:03.474Z"
+    },
+    {
+      "id": "hh-maw-105",
+      "villageId": "mawsynram",
+      "familyHead": "Rimika Marbaniang",
+      "size": 3,
+      "status": "EVACUATED",
+      "lastUpdated": "2026-08-23T23:03:03.474Z"
+    },
+    {
+      "id": "hh-soh-201",
+      "villageId": "sohra",
+      "familyHead": "Dondor Khongwir",
+      "size": 5,
+      "status": "EVACUATED",
+      "lastUpdated": "2026-08-23T23:03:03.474Z"
+    },
+    {
+      "id": "hh-soh-202",
+      "villageId": "sohra",
+      "familyHead": "Clarissa Lyngdoh",
+      "size": 4,
+      "status": "NOT_EVACUATED",
+      "lastUpdated": "2026-08-23T23:03:03.474Z"
+    },
+    {
+      "id": "hh-soh-203",
+      "villageId": "sohra",
+      "familyHead": "Wansuk Mukhim",
+      "size": 5,
+      "status": "EVACUATED",
+      "lastUpdated": "2026-08-23T23:03:03.474Z"
+    }
+  ],
+  "fieldReports": [
+    {
+      "id": "rep-1",
+      "villageId": "mawsynram",
+      "reporterName": "Lalrinkima (Field Volunteer)",
+      "type": "SLOPE_MOVEMENT",
+      "description": "Tension cracks appearing along the main approach slope of sector 3, approximately 5cm wide.",
+      "latitude": 25.299,
+      "longitude": 91.583,
+      "timestamp": "2026-08-23T21:03:03.474Z"
+    },
+    {
+      "id": "rep-2",
+      "villageId": "theiriat",
+      "reporterName": "Laltlanhlua (Lunglei Patrol)",
+      "type": "ROAD_BLOCKAGE",
+      "description": "Heavy boulders rolled onto Lunglei-Tlabung Road, completely blocking vehicular movement.",
+      "latitude": 22.871,
+      "longitude": 92.752,
+      "timestamp": "2026-08-23T20:03:03.474Z"
+    }
+  ],
+  "incidents": [
+    {
+      "id": "inc-1",
+      "type": "Minor Landslide",
+      "severity": "MEDIUM",
+      "description": "Mudslide on the outskirts of Theiriat slopes, no casualties reported.",
+      "status": "VERIFIED",
+      "latitude": 22.878,
+      "longitude": 92.758,
+      "timestamp": "2026-08-23T17:03:03.474Z"
+    }
+  ],
+  "dataSources": [
+    {
+      "id": "weather-api",
+      "name": "IMD Meteorological API",
+      "type": "WEATHER",
+      "status": "DEMO_MODE",
+      "lastUpdated": "2026-08-23T23:03:03.474Z",
+      "freshness": "15 mins ago",
+      "mode": "DEMO",
+      "provider": "DemoWeatherProvider"
+    },
+    {
+      "id": "satellite-api",
+      "name": "Bhuvan Satellite Radar Imagery",
+      "type": "SATELLITE",
+      "status": "DEMO_MODE",
+      "lastUpdated": "2026-08-23T23:03:03.474Z",
+      "freshness": "3 hours ago",
+      "mode": "DEMO",
+      "provider": "DemoSatelliteProvider"
+    },
+    {
+      "id": "terrain-api",
+      "name": "ISRO DEM Terrain Profile Service",
+      "type": "TERRAIN",
+      "status": "DEMO_MODE",
+      "lastUpdated": "2026-08-23T23:03:03.474Z",
+      "freshness": "Static Cached",
+      "mode": "DEMO",
+      "provider": "DemoTerrainProvider"
+    },
+    {
+      "id": "sensor-gateway",
+      "name": "NEIST Soil moisture & Tilt Gateway",
+      "type": "SENSOR",
+      "status": "DEMO_MODE",
+      "lastUpdated": "2026-08-23T23:03:03.474Z",
+      "freshness": "Realtime (5s)",
+      "mode": "DEMO",
+      "provider": "DemoSensorProvider"
+    },
+    {
+      "id": "ml-model",
+      "name": "PRAHARI Landslide Risk Prediction Engine",
+      "type": "ML",
+      "status": "DEMO_MODE",
+      "lastUpdated": "2026-08-23T23:03:03.474Z",
+      "freshness": "Realtime on-demand",
+      "mode": "DEMO",
+      "provider": "DemoRiskPredictionProvider"
+    },
+    {
+      "id": "sms-gateway",
+      "name": "National Alert NIC Gateway (SMS)",
+      "type": "SMS",
+      "status": "DISCONNECTED",
+      "lastUpdated": "Never",
+      "freshness": "Offline",
+      "mode": "DEMO",
+      "provider": "DemoNotificationProvider"
+    }
+  ]
+}
