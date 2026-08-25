@@ -1,0 +1,19 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+package-lock.json.bak
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Logs & Temporary
+*.log
+.DS_Store
+Thumbs.db
+.system_generated/
