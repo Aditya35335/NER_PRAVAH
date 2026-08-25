@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, AlertTriangle, Route, Landmark, 
   Bell, Phone, ArrowRight, MapPin, 
-  Home, Map, Radio, User, Check, X, CloudRain, Compass, CheckCircle2, Shield
+  Home, Map, Radio, User, Check, X, CloudRain, Compass, CheckCircle2, Shield,
+  Layers, Navigation
 } from 'lucide-react';
 import { Village, Shelter, Road, Alert } from '../types';
 import { translations, Language } from '../i18n/translations';
 import GisMap from '../components/GisMap';
+import { markHouseholdEvacuatedInFirestore, dispatchSOSInFirestore } from '../firebase';
+import { AuthUser } from '../components/AuthModal';
 
 interface VillagerPortalProps {
   villages: Village[];
@@ -15,57 +18,173 @@ interface VillagerPortalProps {
   alerts?: Alert[];
   lang?: Language;
   setLang?: (lang: Language) => void;
+  currentUser?: AuthUser | null;
+  onRequestLogin?: (msg?: string) => void;
 }
 
-export default function VillagerPortal({ villages, shelters, roads, alerts = [], lang = 'hi', setLang }: VillagerPortalProps) {
+export default function VillagerPortal({ 
+  villages, 
+  shelters, 
+  roads, 
+  alerts = [], 
+  lang = 'hi', 
+  setLang,
+  currentUser,
+  onRequestLogin
+}: VillagerPortalProps) {
   const t = translations[lang] || translations.hi;
 
-  const [userCoords, setUserCoords] = useState<[number, number]>([25.298, 91.582]);
-  const [localCityName, setLocalCityName] = useState<string>('East Khasi Hills / Mawsynram');
-  const [localWeather, setLocalWeather] = useState<any>({ rainfall24h: 148, temperature: 22, soilMoisture: 91 });
-  const [localRiskScore, setLocalRiskScore] = useState<number>(94);
+  // 1. Sector / Location selection — defaults to logged in resident's village or first sector
+  const [selectedVillageId, setSelectedVillageId] = useState<string>(() => {
+    return currentUser?.villageId || villages[0]?.id || 'mawsynram';
+  });
+
+  const activeVillage = villages.find(v => v.id === selectedVillageId) || villages[0] || {
+    id: 'mawsynram',
+    name: 'Mawsynram Village (East Khasi Hills, Meghalaya)',
+    latitude: 25.298,
+    longitude: 91.582,
+    riskScore: 35,
+    riskLevel: 'LOW',
+    rainfall: 12,
+    soilMoisture: 42,
+    slope: 28,
+    elevation: 1400
+  };
+
+  const [userCoords, setUserCoords] = useState<[number, number]>([activeVillage.latitude, activeVillage.longitude]);
+  const [localWeather, setLocalWeather] = useState<any>({ 
+    rainfall24h: activeVillage.rainfall, 
+    temperature: 22, 
+    soilMoisture: activeVillage.soilMoisture 
+  });
+  const [localRiskScore, setLocalRiskScore] = useState<number>(activeVillage.riskScore);
+  const [localRiskLevel, setLocalRiskLevel] = useState<string>(activeVillage.riskLevel);
+
   const [markedSafe, setMarkedSafe] = useState<boolean>(false);
   const [showSafetyModal, setShowSafetyModal] = useState<boolean>(false);
+  const [showEvacModal, setShowEvacModal] = useState<boolean>(false);
+  const [showSosModal, setShowSosModal] = useState<boolean>(false);
   const [showHazardModal, setShowHazardModal] = useState<boolean>(false);
   const [showMapModal, setShowMapModal] = useState<boolean>(false);
+  
+  const [familyHeadName, setFamilyHeadName] = useState<string>(currentUser?.name || '');
+  const [familySize, setFamilySize] = useState<number>(4);
+  const [sosPhone, setSosPhone] = useState<string>('');
+  const [sosNotes, setSosNotes] = useState<string>('');
+  const [sosSuccess, setSosSuccess] = useState<boolean>(false);
   const [hazardType, setHazardType] = useState<string>('Tension Crack on Hill');
   const [hazardDesc, setHazardDesc] = useState<string>('');
   const [hazardSuccess, setHazardSuccess] = useState<boolean>(false);
 
-  // Determine if active alert condition exists (Risk >= 65% or active alert in sector)
-  const isAlertActive = localRiskScore >= 65 || alerts.some(a => a.severity === 'CRITICAL' || a.severity === 'HIGH');
-
-  // Automatically detect user's browser GPS on mount
+  // Sync user details on login
   useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          setUserCoords([lat, lng]);
+    if (currentUser?.name) setFamilyHeadName(currentUser.name);
+    if (currentUser?.villageId) setSelectedVillageId(currentUser.villageId);
+  }, [currentUser]);
 
-          // Fetch live weather & real AI risk prediction for user's actual coordinate
-          try {
-            const predRes = await fetch(`/api/predict?lat=${lat}&lng=${lng}&name=Current+GPS+Location`);
-            if (predRes.ok) {
-              const predData = await predRes.json();
-              setLocalRiskScore(predData.riskScore);
-              setLocalWeather({
-                rainfall24h: predData.metrics.rainfall24h,
-                temperature: 22,
-                soilMoisture: predData.metrics.soilMoisture
-              });
-            }
-          } catch (e) {
-            console.warn(e);
+  // Sync coordinates and baseline stats immediately when selected sector changes
+  useEffect(() => {
+    if (activeVillage) {
+      setUserCoords([activeVillage.latitude, activeVillage.longitude]);
+      setLocalRiskScore(activeVillage.riskScore);
+      setLocalRiskLevel(activeVillage.riskLevel);
+      setLocalWeather({ 
+        rainfall24h: activeVillage.rainfall, 
+        temperature: 22, 
+        soilMoisture: activeVillage.soilMoisture 
+      });
+      
+      // Fetch live AI prediction & weather for the resident's selected sector
+      let isCurrent = true;
+      const fetchSectorData = async () => {
+        try {
+          const predRes = await fetch(`/api/predict?lat=${activeVillage.latitude}&lng=${activeVillage.longitude}&name=${encodeURIComponent(activeVillage.name)}`);
+          if (predRes.ok && isCurrent) {
+            const predData = await predRes.json();
+            setLocalRiskScore(predData.riskScore);
+            setLocalRiskLevel(predData.riskLevel);
+            setLocalWeather({
+              rainfall24h: predData.metrics.rainfall24h,
+              temperature: 22,
+              soilMoisture: predData.metrics.soilMoisture
+            });
           }
-        },
-        () => {
-          // Fallback to Mawsynram
+        } catch (e) {
+          console.warn('[VillagerPortal] Weather fetch notice:', e);
         }
-      );
+      };
+
+      fetchSectorData();
+      return () => { isCurrent = false; };
     }
-  }, []);
+  }, [selectedVillageId, activeVillage?.id]);
+
+  // 2. Strict Location Filtering of Alerts (Only alerts for the resident's selected village!)
+  const localAlerts = alerts.filter(a => {
+    if (!a) return false;
+    const matchesVillageId = a.villageId && (
+      a.villageId === activeVillage.id || 
+      activeVillage.id.includes(a.villageId) ||
+      a.villageId.includes(activeVillage.id)
+    );
+    const shortName = activeVillage.name.split('(')[0].trim().toLowerCase();
+    const matchesName = (
+      (a.location && a.location.toLowerCase().includes(shortName)) || 
+      (a.title && a.title.toLowerCase().includes(shortName))
+    );
+    return Boolean(matchesVillageId || matchesName);
+  });
+
+  const hasCriticalLocalAlert = localAlerts.some(a => (a.severity === 'CRITICAL' || a.severity === 'HIGH') && a.status !== 'RESOLVED');
+  const isAlertActive = hasCriticalLocalAlert;
+  const activeAlertDetail = localAlerts[0];
+
+  // 3. Strict Location Filtering of Shelters and Roads
+  const localShelters = shelters.filter(s => 
+    s.id.includes(activeVillage.id) || 
+    activeVillage.id.includes(s.id.split('-')[0]) ||
+    Math.hypot(s.latitude - activeVillage.latitude, s.longitude - activeVillage.longitude) < 0.8
+  );
+  const primaryShelter = localShelters[0] || shelters[0];
+
+  const localRoads = roads.filter(r => 
+    r.id.includes(activeVillage.id) || 
+    activeVillage.id.includes(r.id.split('-')[0]) ||
+    Math.hypot(r.latStart - activeVillage.latitude, r.lngStart - activeVillage.longitude) < 0.8
+  );
+  const isAnyRoadBlocked = localRoads.some(r => r.status === 'BLOCKED');
+
+  const handleEvacSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!familyHeadName.trim()) return;
+    const targetShelterId = primaryShelter?.id || 'relief-center';
+    await markHouseholdEvacuatedInFirestore(
+      activeVillage.id,
+      familyHeadName.trim(),
+      familySize,
+      targetShelterId
+    );
+    setMarkedSafe(true);
+    setShowEvacModal(false);
+  };
+
+  const handleSosSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await dispatchSOSInFirestore({
+      citizenName: familyHeadName.trim() || 'Citizen at GPS location',
+      phone: sosPhone.trim() || 'Not provided',
+      latitude: userCoords[0],
+      longitude: userCoords[1],
+      urgency: 'IMMEDIATE',
+      notes: sosNotes.trim() || `Urgent rescue requested near ${activeVillage.name}`
+    });
+    setSosSuccess(true);
+    setTimeout(() => {
+      setSosSuccess(false);
+      setShowSosModal(false);
+    }, 2500);
+  };
 
   const handleReportHazard = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,8 +193,8 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          villageId: 'mawsynram',
-          reporterName: 'Local Resident',
+          villageId: activeVillage.id,
+          reporterName: familyHeadName.trim() || 'Local Resident',
           type: 'LANDSLIDE',
           description: `${hazardType}: ${hazardDesc || 'Reported from citizen portal'}`,
           latitude: userCoords[0],
@@ -93,42 +212,81 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
     }
   };
 
+  const onTileClickSafe = () => {
+    if (!currentUser) {
+      onRequestLogin?.('Please sign in first to verify and record your family safe evacuation status.');
+      return;
+    }
+    setShowEvacModal(true);
+  };
+
+  const onTileClickSos = () => {
+    if (!currentUser) {
+      onRequestLogin?.('Please sign in first to transmit an official emergency SOS GPS rescue dispatch.');
+      return;
+    }
+    setShowSosModal(true);
+  };
+
+  const onTileClickHazard = () => {
+    if (!currentUser) {
+      onRequestLogin?.('Please sign in first to submit an authentic field hazard / crack incident report.');
+      return;
+    }
+    setShowHazardModal(true);
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-12 font-sans">
       
-      {/* Header Bar */}
-      <div className="bg-white border border-surface-border rounded-2xl p-5 shadow-card flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      {/* ── 1. Resident Location Bar & Sector Selector ─────────────────────── */}
+      <div className="bg-white border border-surface-border rounded-2xl p-5 shadow-card flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="font-extrabold text-2xl text-slate-900 leading-tight">{t.namaste}</h1>
-            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">
+            <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">
               {t.citizenSafetyPortal}
             </span>
           </div>
-          <p className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-1.5">
-            <Compass className="w-3.5 h-3.5 text-emerald-600 animate-spin" style={{ animationDuration: '8s' }} />
-            <span>{localCityName} [{userCoords[0].toFixed(3)}, {userCoords[1].toFixed(3)}]</span>
+          <p className="text-xs text-slate-500 font-medium mt-1 flex items-center gap-1.5">
+            <Compass className="w-3.5 h-3.5 text-emerald-600 animate-spin" style={{ animationDuration: '10s' }} />
+            <span>Monitored Sector: <b>{activeVillage.name}</b> [{userCoords[0].toFixed(3)}°N, {userCoords[1].toFixed(3)}°E]</span>
           </p>
         </div>
 
-        {/* Language selector dropdown */}
-        {setLang && (
-          <div className="flex items-center gap-2 self-end sm:self-center">
-            <span className="text-xs text-slate-500 font-bold">भाषा (Language):</span>
+        {/* Controls: Sector Selector & Language */}
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          
+          {/* Sector Selector Dropdown */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs text-slate-700 shadow-sm flex-1 md:flex-initial">
+            <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <select
+              value={selectedVillageId}
+              onChange={(e) => setSelectedVillageId(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer w-full"
+            >
+              {villages.map(v => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Language selector */}
+          {setLang && (
             <select
               value={lang}
               onChange={(e: any) => setLang(e.target.value as Language)}
-              className="bg-slate-100 border border-slate-200 text-xs font-bold rounded-xl px-3 py-1.5 text-slate-700 focus:outline-none cursor-pointer"
+              className="bg-slate-50 border border-slate-200 text-xs font-bold rounded-xl px-3 py-1.5 text-slate-700 focus:outline-none cursor-pointer shadow-sm"
             >
               <option value="hi">हिंदी (Hindi)</option>
               <option value="en">English</option>
               <option value="as">অসমীয়া (Assamese)</option>
             </select>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* 1. Dynamic Alert Banner: Red when Alert Active, Green when Normal */}
+      {/* ── 2. Resident Location-Specific Alert Banner ─────────────────────── */}
       {isAlertActive ? (
         <div className="bg-[#DC2626] text-white rounded-2xl p-6 shadow-elevated space-y-4 relative overflow-hidden animate-slide-in">
           <div className="flex justify-between items-start">
@@ -138,27 +296,36 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
               </div>
               <div>
                 <h2 className="font-extrabold text-lg sm:text-xl tracking-wide uppercase">
-                  {t.highLandslideRiskArea} ({localRiskScore}%)
+                  🚨 {activeVillage.name.split('(')[0]} · {activeAlertDetail?.title || `${t.highLandslideRiskArea} (${localRiskScore}%)`}
                 </h2>
                 <p className="text-xs text-red-100 font-medium mt-0.5">
-                  {lang === 'hi' ? `आपके स्थान पर 24 घंटे में वर्षा: ${localWeather.rainfall24h} mm` : `Rainfall at your location: ${localWeather.rainfall24h} mm`}
+                  {lang === 'hi' ? `24 घंटे में वर्षा: ${localWeather.rainfall24h} mm | मृदा संतृप्ति: ${localWeather.soilMoisture}%` : `24h Rainfall: ${localWeather.rainfall24h} mm | Soil Moisture: ${localWeather.soilMoisture}%`}
                 </p>
               </div>
             </div>
-            <CloudRain className="w-10 h-10 text-red-200" />
+            <CloudRain className="w-10 h-10 text-red-200 shrink-0" />
           </div>
 
           <p className="text-xs sm:text-sm text-red-100 leading-relaxed font-medium">
-            {t.avoidHighSlopes}
+            {activeAlertDetail?.message || t.avoidHighSlopes}
           </p>
 
-          <button
-            onClick={() => setShowSafetyModal(true)}
-            className="py-3 px-6 bg-white/20 hover:bg-white/30 text-white font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center justify-center gap-2"
-          >
-            <span>{t.viewSafetyInstructions}</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowSafetyModal(true)}
+              className="py-2.5 px-5 bg-white/20 hover:bg-white/30 text-white font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2"
+            >
+              <span>{t.viewSafetyInstructions}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setShowMapModal(true)}
+              className="py-2.5 px-5 bg-white text-red-700 hover:bg-red-50 font-bold text-xs rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm"
+            >
+              <Navigation className="w-4 h-4" />
+              <span>{t.viewRouteMap}</span>
+            </button>
+          </div>
         </div>
       ) : (
         <div className="bg-emerald-600 text-white rounded-2xl p-6 shadow-elevated space-y-3 relative overflow-hidden">
@@ -168,66 +335,63 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
             </div>
             <div>
               <h2 className="font-extrabold text-lg tracking-wide uppercase">
-                {lang === 'hi' ? 'सामान्य स्थिति • कोई सक्रिय भूस्खलन चेतावनी नहीं' : 'Normal Conditions • No Active Landslide Alert'}
+                {lang === 'hi' ? `सामान्य स्थिति • ${activeVillage.name.split('(')[0]} में कोई सक्रिय भूस्खलन चेतावनी नहीं` : `Normal Conditions in ${activeVillage.name.split('(')[0]} • No Active Alerts`}
               </h2>
               <p className="text-xs text-emerald-100 font-medium mt-0.5">
-                {lang === 'hi' ? `स्थानीय जोखिम: ${localRiskScore}% (सुरक्षित) • सभी मार्ग खुले हैं` : `Local Risk: ${localRiskScore}% (Normal) • All roads clear`}
+                {lang === 'hi' ? `स्थानीय जोखिम: ${localRiskScore}% (सुरक्षित) • 24 घंटे में वर्षा: ${localWeather.rainfall24h} mm` : `Local Risk Index: ${localRiskScore}% (Normal) • 24h Rain: ${localWeather.rainfall24h} mm`}
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* 2. Evacuation Information Card — DISPLAYED ONLY WHEN ALERT IS ACTIVE */}
-      {isAlertActive ? (
-        <div className="bg-white border border-surface-border rounded-2xl p-5 shadow-card space-y-4 animate-slide-in">
-          <div className="flex items-center gap-2 text-slate-900 border-b border-slate-100 pb-3">
-            <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
-              <Route className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-extrabold text-sm uppercase tracking-wide">{t.evacuationInformation}</h3>
-              <span className="text-[11px] text-slate-500">{t.autoCalculatedRoute}</span>
-            </div>
+      {/* ── 3. Sector-Specific Relief Shelter & Road Quick Card ────────────── */}
+      <div className="bg-white border border-surface-border rounded-2xl p-5 shadow-card grid grid-cols-1 sm:grid-cols-2 gap-4">
+        
+        {/* Nearest Designated Shelter */}
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <Landmark className="w-3.5 h-3.5 text-blue-600" />
+              Nearest Relief Shelter
+            </span>
+            <span className="text-[9px] px-2 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-full">
+              {primaryShelter ? `${primaryShelter.capacity - primaryShelter.occupied} Spots Free` : 'Standby'}
+            </span>
           </div>
+          <h4 className="font-extrabold text-sm text-slate-900">{primaryShelter?.name || 'Local High School Relief Camp'}</h4>
+          <p className="text-[11px] text-slate-500">{primaryShelter?.location || activeVillage.name}</p>
+        </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-              <span className="text-[10px] text-slate-400 block font-bold uppercase">{t.nearestSafeShelter}</span>
-              <span className="font-extrabold text-sm text-slate-900 mt-1 block">{t.govtSchoolCamp}</span>
-              <span className="text-[11px] text-emerald-600 font-bold">{t.openSpotsAvailable}</span>
-            </div>
-
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
-              <span className="text-[10px] text-slate-400 block font-bold uppercase">{t.estimatedWalkingTime}</span>
-              <span className="font-extrabold text-sm text-slate-900 mt-1 block">{t.walkingTimeVal}</span>
-              <span className="text-[11px] text-slate-500">{t.viaLinkRoad}</span>
-            </div>
-
-            <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex flex-col justify-between">
-              <span className="text-[10px] text-slate-400 block font-bold uppercase">{t.turnByTurnGuidance}</span>
-              <button
-                onClick={() => setShowMapModal(true)}
-                className="mt-2 w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm flex items-center justify-center gap-1.5"
-              >
-                <MapPin className="w-3.5 h-3.5" />
-                {t.viewRouteMap}
-              </button>
-            </div>
+        {/* Local Road Corridor Status */}
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
+              <Route className="w-3.5 h-3.5 text-purple-600" />
+              Local Access Corridor
+            </span>
+            <span className={`text-[9px] px-2 py-0.5 font-bold rounded-full ${
+              isAnyRoadBlocked ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'
+            }`}>
+              {isAnyRoadBlocked ? 'BLOCKED' : 'PASSABLE'}
+            </span>
           </div>
+          <h4 className="font-extrabold text-sm text-slate-900">
+            {localRoads[0]?.name || 'National & District Access Highway'}
+          </h4>
+          <p className="text-[11px] text-slate-500">
+            {isAnyRoadBlocked ? (localRoads.find(r => r.status === 'BLOCKED')?.blockageReason || 'Obstruction reported') : 'Normal vehicular traffic flow.'}
+          </p>
         </div>
-      ) : (
-        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-center text-xs text-slate-600 font-medium">
-          {lang === 'hi' ? '🛡️ राहत शिविर स्टैंडबाय पर हैं। चेतावनी जारी होने पर निकटतम शिविर का मार्ग स्वतः सक्रिय होगा।' : '🛡️ Relief shelters are on standby. Safe routes will activate automatically if alert triggers.'}
-        </div>
-      )}
 
-      {/* 3. Six Action Tiles Grid */}
+      </div>
+
+      {/* ── 4. Six Action Tiles Grid ────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
         
-        {/* Tile 1: I Am Safe */}
+        {/* Tile 1: Mark Family Evacuated / Safe */}
         <button
-          onClick={() => setMarkedSafe(true)}
+          onClick={onTileClickSafe}
           className={`p-4 bg-white border border-slate-200 rounded-2xl flex flex-col items-center justify-center gap-2 shadow-card hover:bg-slate-50 transition-all ${
             markedSafe ? 'border-emerald-500 bg-emerald-50' : ''
           }`}
@@ -242,9 +406,20 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
           </span>
         </button>
 
-        {/* Tile 2: Report Hazard */}
+        {/* Tile 2: SOS Emergency Dispatch */}
         <button
-          onClick={() => setShowHazardModal(true)}
+          onClick={onTileClickSos}
+          className="p-4 bg-red-50 border border-red-200 rounded-2xl flex flex-col items-center justify-center gap-2 shadow-card hover:bg-red-100 transition-all animate-pulse"
+        >
+          <div className="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shadow-md">
+            <Phone className="w-5 h-5" />
+          </div>
+          <span className="text-xs font-extrabold text-red-700 text-center">SOS Rescue</span>
+        </button>
+
+        {/* Tile 3: Report Hazard */}
+        <button
+          onClick={onTileClickHazard}
           className="p-4 bg-white border border-slate-200 rounded-2xl flex flex-col items-center justify-center gap-2 shadow-card hover:bg-slate-50 transition-all"
         >
           <div className="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center">
@@ -253,20 +428,9 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
           <span className="text-xs font-bold text-slate-800 text-center">{t.reportHazard}</span>
         </button>
 
-        {/* Tile 3: Road Status */}
-        <button
-          onClick={() => alert(isAlertActive ? (lang === 'hi' ? 'सड़क स्थिति: नोंगस्टोइन के पास NH-106 चट्टान गिरने से अवरुद्ध है।' : 'Road Status: NH-106 near Nongstoin is BLOCKED due to rockfall.') : (lang === 'hi' ? 'सड़क स्थिति: सभी मुख्य सड़कें सामान्य हैं।' : 'Road Status: All highways normal.'))}
-          className="p-4 bg-white border border-slate-200 rounded-2xl flex flex-col items-center justify-center gap-2 shadow-card hover:bg-slate-50 transition-all"
-        >
-          <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
-            <Route className="w-5 h-5" />
-          </div>
-          <span className="text-xs font-bold text-slate-800 text-center">{t.roadStatus}</span>
-        </button>
-
         {/* Tile 4: Shelters */}
         <button
-          onClick={() => alert(lang === 'hi' ? 'सक्रिय राहत शिविर सूची:\n1. शासकीय उच्चतर माध्यमिक विद्यालय - खुला (380 स्थान उपलब्ध)\n2. मौसिनराम खेल परिसर - स्टैंडबाय' : 'Active Shelters:\n1. Govt. High School - OPEN (380 spots)\n2. Mawsynram Sports Complex - STANDBY')}
+          onClick={() => alert(lang === 'hi' ? `सक्रिय राहत शिविर सूची (${activeVillage.name}):\n1. ${primaryShelter?.name || 'शासकीय उच्चतर माध्यमिक विद्यालय'} - खुला (${primaryShelter ? primaryShelter.capacity - primaryShelter.occupied : 380} स्थान उपलब्ध)` : `Active Shelters in ${activeVillage.name}:\n1. ${primaryShelter?.name || 'Govt High School'} - OPEN (${primaryShelter ? primaryShelter.capacity - primaryShelter.occupied : 380} spots free)`)}
           className="p-4 bg-white border border-slate-200 rounded-2xl flex flex-col items-center justify-center gap-2 shadow-card hover:bg-slate-50 transition-all"
         >
           <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center">
@@ -275,15 +439,15 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
           <span className="text-xs font-bold text-slate-800 text-center">{t.shelters}</span>
         </button>
 
-        {/* Tile 5: Alerts */}
+        {/* Tile 5: Road Status */}
         <button
-          onClick={() => alert(isAlertActive ? (lang === 'hi' ? 'सक्रिय चेतावनी: अत्यधिक वर्षा के कारण ढलान अस्थिरता। सतर्क रहें।' : 'Active Alert: Critical precipitation saturation on slopes.') : (lang === 'hi' ? 'कोई सक्रिय चेतावनी नहीं है।' : 'No active alerts.'))}
+          onClick={() => alert(isAnyRoadBlocked ? (lang === 'hi' ? `सड़क स्थिति (${activeVillage.name}): मार्ग पर मलबा आने से अवरोध है। वैकल्पिक मार्ग का उपयोग करें।` : `Road Status (${activeVillage.name}): Route blocked due to debris. Use alternate relief bypass.`) : (lang === 'hi' ? `सड़क स्थिति (${activeVillage.name}): सभी मुख्य सड़कें सामान्य एवं खुली हैं।` : `Road Status (${activeVillage.name}): All primary corridors open.`))}
           className="p-4 bg-white border border-slate-200 rounded-2xl flex flex-col items-center justify-center gap-2 shadow-card hover:bg-slate-50 transition-all"
         >
-          <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center">
-            <Bell className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+            <Route className="w-5 h-5" />
           </div>
-          <span className="text-xs font-bold text-slate-800 text-center">{t.alerts}</span>
+          <span className="text-xs font-bold text-slate-800 text-center">{t.roadStatus}</span>
         </button>
 
         {/* Tile 6: Helpline */}
@@ -299,52 +463,173 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
 
       </div>
 
-      {/* 4. Community Update Card */}
-      <div className="bg-white border border-surface-border rounded-2xl p-5 shadow-card flex justify-between items-center">
-        <div>
-          <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider">{t.communityUpdate}</span>
-          <p className="font-extrabold text-sm text-slate-900 mt-0.5">{t.familiesEvacuated}</p>
-          <span className="text-[11px] text-slate-500">
-            {lang === 'hi' ? 'सेक्टर 2 में राहत सामग्री एवं पेयजल की व्यवस्था की गई है।' : 'Relief supplies and drinking water dispatched to Sector 2.'}
-          </span>
-        </div>
-        <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl">
-          <ArrowRight className="w-5 h-5" />
-        </div>
-      </div>
-
-      {/* Safety Instructions Modal */}
-      {showSafetyModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-lg rounded-3xl p-6 space-y-4 animate-slide-in">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-bold text-base text-slate-900">{lang === 'hi' ? 'आपातकालीन सुरक्षा निर्देश' : 'Emergency Safety Checklist'}</h3>
-              <button onClick={() => setShowSafetyModal(false)} className="p-1 text-slate-500 hover:text-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="space-y-2.5 text-xs text-slate-700">
-              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 font-semibold">
-                {lang === 'hi' ? '1. यदि आपको पेड़ों का झुकना, ढलानों पर नई दरारें दिखाई दें, या गड़गड़ाहट सुनाई दे, तो तुरंत खुले ऊंचे स्थान पर जाएं।' : '1. If you notice tilting trees, new cracks on slopes, or hear loud subterranean rumble, evacuate immediately.'}
+        {/* ── 5. Safety Instructions Modal ────────────────────────────────────── */}
+        {showSafetyModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-lg rounded-3xl p-6 space-y-4 animate-slide-in">
+              <div className="flex justify-between items-center border-b pb-3">
+                <h3 className="font-bold text-base text-slate-900">
+                  {lang === 'hi' ? 'सुरक्षा निर्देश एवं बचाव दिशा-निर्देश' : 'Safety Advisory & Evacuation Guidelines'}
+                </h3>
+                <button onClick={() => setShowSafetyModal(false)} className="p-1 text-slate-500 hover:text-slate-800">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                {lang === 'hi' ? '2. भारी बारिश के दौरान प्राकृतिक जल निकासी नालों, नदी के किनारों और पुलियों को पार न करें।' : '2. Do not cross river beds, streams, or low-lying road culverts during heavy rainfall.'}
-              </div>
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                {lang === 'hi' ? '3. शासकीय उच्चतर माध्यमिक विद्यालय राहत शिविर की ओर निर्धारित सुरक्षित मार्ग का अनुसरण करें।' : '3. Follow the designated route to Govt. High School shelter.'}
-              </div>
-            </div>
+            <ul className="space-y-2.5 text-xs text-slate-700">
+              <li className="flex items-start gap-2">
+                <span className="font-bold text-emerald-600">1.</span>
+                <span>{lang === 'hi' ? 'खड़ी ढलानों और भारी जलभराव वाले क्षेत्रों से तुरंत दूर रहें।' : 'Move away from steep slopes and waterlogged stream beds.'}</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-bold text-emerald-600">2.</span>
+                <span>{lang === 'hi' ? 'यदि घरों की दीवारों या जमीन में नई दरारें दिखाई दें तो तुरंत सुरक्षित शिविर में जाएं।' : 'If fresh tension cracks appear in walls or ground, evacuate immediately.'}</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-bold text-emerald-600">3.</span>
+                <span>{lang === 'hi' ? 'आपातकालीन किट (दवाएं, टॉर्च, पहचान पत्र) साथ रखें।' : 'Keep an emergency kit ready with basic medicines, torch, and documents.'}</span>
+              </li>
+            </ul>
             <button
               onClick={() => setShowSafetyModal(false)}
-              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs"
+              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs"
             >
-              {lang === 'hi' ? 'मैंने निर्देश समझ लिए हैं' : 'I Understand & Keep Alert'}
+              {lang === 'hi' ? 'समझ गया' : 'Understood'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Hazard Report Modal */}
+      {/* ── 6. Evacuation / Family Safety Check-In Modal ───────────────────── */}
+      {showEvacModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4 animate-slide-in">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <h3 className="font-extrabold text-sm text-slate-900">
+                  {lang === 'hi' ? 'परिवार सुरक्षा एवं निकासी सत्यापन' : 'Family Safety & Evacuation Verification'}
+                </h3>
+              </div>
+              <button onClick={() => setShowEvacModal(false)} className="p-1 text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEvacSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="text-slate-600 font-bold block mb-1">
+                  {lang === 'hi' ? 'परिवार मुखिया / नाम' : 'Family Head Name'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={familyHeadName}
+                  onChange={(e) => setFamilyHeadName(e.target.value)}
+                  placeholder="e.g. Ramesh Chandra / Banteilang"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-600 font-bold block mb-1">
+                  {lang === 'hi' ? 'परिवार के सदस्यों की कुल संख्या' : 'Total Family Member Count'}
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  required
+                  value={familySize}
+                  onChange={(e) => setFamilySize(parseInt(e.target.value) || 1)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="p-2.5 bg-emerald-50 rounded-xl text-[11px] text-emerald-800 border border-emerald-200">
+                📍 {lang === 'hi' ? `स्थान: ${activeVillage.name}` : `Sector: ${activeVillage.name}`}
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{lang === 'hi' ? 'सुरक्षित निकासी दर्ज करें' : 'Confirm Safe Evacuation'}</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── 7. SOS Emergency Dispatch Modal ─────────────────────────────────── */}
+      {showSosModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl p-6 space-y-4 animate-slide-in">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-red-100 text-red-700 rounded-xl animate-pulse">
+                  <Phone className="w-5 h-5" />
+                </div>
+                <h3 className="font-extrabold text-sm text-red-700">
+                  {lang === 'hi' ? '🚨 आपातकालीन SOS बचाव अनुरोध' : '🚨 Emergency SOS Rescue Dispatch'}
+                </h3>
+              </div>
+              <button onClick={() => setShowSosModal(false)} className="p-1 text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {sosSuccess ? (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-center text-xs font-bold space-y-1">
+                <p className="text-sm">✓ SOS Broadcasted to SDRF / NDRF Teams</p>
+                <p className="text-[11px] text-emerald-600">Your GPS Coordinates [{userCoords[0].toFixed(4)}, {userCoords[1].toFixed(4)}] near {activeVillage.name} have been logged.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleSosSubmit} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="text-slate-600 font-bold block mb-1">Contact Mobile Number</label>
+                  <input
+                    type="tel"
+                    required
+                    value={sosPhone}
+                    onChange={(e) => setSosPhone(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none focus:border-red-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-600 font-bold block mb-1">Urgent Situation Details</label>
+                  <textarea
+                    value={sosNotes}
+                    onChange={(e) => setSosNotes(e.target.value)}
+                    placeholder="e.g. 4 family members trapped near upper slope; road blocked"
+                    rows={3}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 focus:outline-none focus:border-red-500"
+                    required
+                  />
+                </div>
+
+                <div className="p-2.5 bg-red-50 rounded-xl text-[10px] text-red-700 border border-red-200 font-mono">
+                  📍 Automatic GPS broadcast: [{userCoords[0].toFixed(4)}°N, {userCoords[1].toFixed(4)}°E] ({activeVillage.name})
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-extrabold rounded-xl text-xs shadow-lg transition-all flex items-center justify-center gap-1.5"
+                >
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>Dispatch SOS Signal Now</span>
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 8. Hazard Report Modal ──────────────────────────────────────────── */}
       {showHazardModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-lg rounded-3xl p-6 space-y-4 animate-slide-in">
@@ -387,6 +672,10 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
                   />
                 </div>
 
+                <div className="text-[10px] text-slate-500 font-mono">
+                  📍 Sector: {activeVillage.name}
+                </div>
+
                 <button
                   type="submit"
                   className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl text-xs"
@@ -399,18 +688,18 @@ export default function VillagerPortal({ villages, shelters, roads, alerts = [],
         </div>
       )}
 
-      {/* Map View Modal */}
+      {/* ── 9. Map View Modal ───────────────────────────────────────────────── */}
       {showMapModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl h-[80vh] rounded-3xl p-6 flex flex-col space-y-4 animate-slide-in">
             <div className="flex justify-between items-center border-b pb-2">
-              <h3 className="font-bold text-base text-slate-900">{t.viewRouteMap}</h3>
+              <h3 className="font-bold text-base text-slate-900">{t.viewRouteMap} ({activeVillage.name})</h3>
               <button onClick={() => setShowMapModal(false)} className="p-1 text-slate-500">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="flex-1 h-full min-h-[300px]">
-              <GisMap villages={villages} shelters={shelters} roads={roads} alerts={alerts} lang={lang} emergencyMode={isAlertActive} />
+              <GisMap villages={[activeVillage]} shelters={localShelters} roads={localRoads} alerts={localAlerts} lang={lang} emergencyMode={isAlertActive} />
             </div>
           </div>
         </div>

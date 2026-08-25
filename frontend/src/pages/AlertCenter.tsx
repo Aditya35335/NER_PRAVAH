@@ -1,27 +1,34 @@
 import React, { useState } from 'react';
 import { 
   Bell, AlertTriangle, ShieldCheck, Check, Clock, 
-  MapPin, Eye, Compass, BellRing
+  MapPin, Eye, Compass, BellRing, Volume2, Radio, CheckCircle2, Smartphone, Send
 } from 'lucide-react';
-import { Alert, Village } from '../types';
+import { Alert, Village, Shelter } from '../types';
+import { dispatchTargetedSirenSignal } from '../firebase';
+import DemoSmsBroadcastModal from '../components/DemoSmsBroadcastModal';
 
 interface AlertCenterProps {
   alerts: Alert[];
   villages: Village[];
+  shelters?: Shelter[];
   hasPermission: boolean;
   onAlertUpdate: () => void;
 }
 
-export default function AlertCenter({ alerts, villages, hasPermission, onAlertUpdate }: AlertCenterProps) {
+export default function AlertCenter({ alerts, villages, shelters = [], hasPermission, onAlertUpdate }: AlertCenterProps) {
   const [filterSeverity, setFilterSeverity] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   
-  // Custom alert creator form (optional)
+  // Custom alert creator form
   const [showAddForm, setShowAddForm] = useState<boolean>(false);
+  const [showSmsModal, setShowSmsModal] = useState<boolean>(false);
   const [newAlertVillage, setNewAlertVillage] = useState<string>('');
-  const [newAlertSeverity, setNewAlertSeverity] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('HIGH');
+  const [newAlertSeverity, setNewAlertSeverity] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('CRITICAL');
   const [newAlertTitle, setNewAlertTitle] = useState<string>('');
   const [newAlertMessage, setNewAlertMessage] = useState<string>('');
+  const [soundSirenOption, setSoundSirenOption] = useState<boolean>(true);
+  const [dispatching, setDispatching] = useState<boolean>(false);
+  const [dispatchNotice, setDispatchNotice] = useState<string | null>(null);
 
   const updateAlertStatus = async (id: string, newStatus: string) => {
     try {
@@ -42,10 +49,28 @@ export default function AlertCenter({ alerts, villages, hasPermission, onAlertUp
     e.preventDefault();
     if (!newAlertVillage || !newAlertTitle) return;
 
+    setDispatching(true);
     const selectedVillageObj = villages.find(v => v.id === newAlertVillage);
-    const riskScore = selectedVillageObj ? selectedVillageObj.riskScore : 50;
+    const riskScore = selectedVillageObj ? selectedVillageObj.riskScore : 85;
+    const villageName = selectedVillageObj ? selectedVillageObj.name : newAlertVillage;
 
     try {
+      // 1. Dispatch 5-second siren signal directly to Cloud Firestore
+      if (soundSirenOption) {
+        await dispatchTargetedSirenSignal({
+          targetSectorId: newAlertVillage,
+          targetSectorName: villageName,
+          severity: newAlertSeverity === 'CRITICAL' ? 'CRITICAL' : 'HIGH',
+          title: newAlertTitle,
+          message: newAlertMessage,
+          durationSeconds: 5,
+          targetCoordinates: selectedVillageObj ? [selectedVillageObj.latitude, selectedVillageObj.longitude] : undefined,
+          radiusKm: 15,
+          dispatchedBy: 'Incident Commander Aditya Nawale'
+        });
+      }
+
+      // 2. Local Backend API Sync
       const res = await fetch('/api/alerts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -56,10 +81,13 @@ export default function AlertCenter({ alerts, villages, hasPermission, onAlertUp
           status: 'NEW',
           villageId: newAlertVillage,
           riskScore,
-          reason: 'Manual Emergency Dispatch by Authority Command'
+          reason: 'Targeted Emergency Siren Broadcast Dispatched'
         })
       });
+
       if (res.ok) {
+        setDispatchNotice(`✓ 5-Second Siren Signal & Emergency Alert successfully targeted to ${villageName}!`);
+        setTimeout(() => setDispatchNotice(null), 5000);
         setShowAddForm(false);
         setNewAlertTitle('');
         setNewAlertMessage('');
@@ -67,6 +95,8 @@ export default function AlertCenter({ alerts, villages, hasPermission, onAlertUp
       }
     } catch (e) {
       console.error('Failed to create manual alert:', e);
+    } finally {
+      setDispatching(false);
     }
   };
 
@@ -110,15 +140,33 @@ export default function AlertCenter({ alerts, villages, hasPermission, onAlertUp
         </div>
 
         {hasPermission && (
-          <button 
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="px-4 py-2 bg-brand-accent hover:bg-blue-600 text-white font-bold text-xs rounded transition-all flex items-center gap-1.5 shadow-glow"
-          >
-            <BellRing className="w-4 h-4" />
-            DISPATCH MANUAL WARNING
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowSmsModal(true)}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-2 shadow-md"
+            >
+              <Smartphone className="w-4 h-4" />
+              📱 Broadcast Risk SMS to Citizens
+            </button>
+
+            <button 
+              onClick={() => setShowAddForm(!showAddForm)}
+              className="px-4 py-2 bg-brand-accent hover:bg-blue-600 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 shadow-glow"
+            >
+              <BellRing className="w-4 h-4" />
+              DISPATCH MANUAL WARNING
+            </button>
+          </div>
         )}
       </div>
+
+      {/* Demo SMS Broadcast Modal */}
+      <DemoSmsBroadcastModal
+        isOpen={showSmsModal}
+        onClose={() => setShowSmsModal(false)}
+        villages={villages}
+        shelters={shelters}
+      />
 
       {/* Manual Dispatch Modal Form overlay */}
       {showAddForm && (
@@ -179,23 +227,81 @@ export default function AlertCenter({ alerts, villages, hasPermission, onAlertUp
               ></textarea>
             </div>
 
+            {/* Preset template buttons */}
+            <div className="md:col-span-2 space-y-1.5">
+              <label className="text-[11px] font-bold text-gray-400 block">Quick Situational Templates:</label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewAlertSeverity('CRITICAL');
+                    setNewAlertTitle('🚨 IMMEDIATE SLOPE EVACUATION REQUIRED');
+                    setNewAlertMessage('Intense cloudburst rainfall exceeding 120mm/24h detected with 85%+ pore soil saturation. Move all family members immediately to the designated hillside relief shelter.');
+                  }}
+                  className="px-2.5 py-1 bg-red-950/60 hover:bg-red-900 border border-red-700/50 text-red-200 rounded-lg text-[11px] font-bold"
+                >
+                  ⚡ Extreme Flash Rain & Slope Failure
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewAlertSeverity('HIGH');
+                    setNewAlertTitle('⚠️ TENSION CRACKS & ROAD PASSAGE WARNING');
+                    setNewAlertMessage('Active hillside soil creep and surface tension cracks detected along the main transport corridor. Heavy vehicles restricted. Follow designated bypass routes.');
+                  }}
+                  className="px-2.5 py-1 bg-amber-950/60 hover:bg-amber-900 border border-amber-700/50 text-amber-200 rounded-lg text-[11px] font-bold"
+                >
+                  🚧 Soil Creep & Highway Blockage
+                </button>
+              </div>
+            </div>
+
+            {/* Siren Toggle Checkbox */}
+            <div className="md:col-span-2 bg-red-950/30 border border-red-800/40 p-3 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Volume2 className="w-5 h-5 text-red-400 animate-pulse shrink-0" />
+                <div>
+                  <h4 className="text-xs font-extrabold text-white">Targeted 5-Second Warning Siren</h4>
+                  <p className="text-[10px] text-red-300">
+                    Sounds a 5-second synthesized alert siren ONLY on citizen devices located within the target danger zone.
+                  </p>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={soundSirenOption}
+                onChange={(e) => setSoundSirenOption(e.target.checked)}
+                className="w-4 h-4 text-red-600 rounded bg-slate-900 border-red-500 focus:ring-red-500 cursor-pointer"
+              />
+            </div>
+
             <div className="md:col-span-2 flex gap-2 justify-end">
               <button 
                 type="button" 
                 onClick={() => setShowAddForm(false)} 
-                className="px-4 py-2 bg-transparent hover:bg-[#1E293B] border border-brand-border text-gray-400 rounded text-xs font-bold"
+                className="px-4 py-2 bg-transparent hover:bg-[#1E293B] border border-brand-border text-gray-400 rounded-xl text-xs font-bold"
               >
                 Cancel
               </button>
               <button 
                 type="submit" 
-                className="px-5 py-2 bg-risk-critical hover:bg-red-600 text-white rounded text-xs font-bold shadow-glow-red"
+                disabled={dispatching}
+                className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md flex items-center gap-2"
               >
-                Broadcast Warnings
+                <Radio className={`w-4 h-4 ${dispatching ? 'animate-spin' : 'animate-pulse'}`} />
+                <span>{dispatching ? 'Dispatching Targeted Siren...' : '🚨 Broadcast 5-Second Siren Signal'}</span>
               </button>
             </div>
 
           </form>
+        </div>
+      )}
+
+      {/* Dispatch Notice Banner */}
+      {dispatchNotice && (
+        <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-2xl text-emerald-800 text-xs font-bold flex items-center gap-2 animate-fade-in shadow-sm">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{dispatchNotice}</span>
         </div>
       )}
 

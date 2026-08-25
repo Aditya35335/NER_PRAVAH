@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   ShieldAlert, CloudRain, Wind, AlertTriangle, Route, Landmark, 
   ArrowRight, Bell, Send, Download, Users, Camera, Play, CheckCircle2,
-  Volume2, Radio, Truck, UserCheck, ShieldCheck, Compass, Info
+  Volume2, Radio, Truck, UserCheck, ShieldCheck, Compass, Info, Smartphone
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import GisMap from '../components/GisMap';
+import DemoSmsBroadcastModal from '../components/DemoSmsBroadcastModal';
 import { Village, Shelter, Road, Alert } from '../types';
 import { translations, Language } from '../i18n/translations';
+import { weatherService, WeatherReading } from '../services/weatherService';
 
 interface DashboardProps {
   villages: Village[];
@@ -22,43 +24,43 @@ interface DashboardProps {
 
 export default function Dashboard({ villages, shelters, roads, alerts, emergencyMode, onSelectPage, lang = 'hi' }: DashboardProps) {
   const t = translations[lang] || translations.hi;
+  const [showSmsModal, setShowSmsModal] = useState<boolean>(false);
 
-  const [liveWeather, setLiveWeather] = useState<any>({
-    temperature: 22,
-    rainfall24h: 135,
-    windSpeed: 25,
-    soilMoisture: 88,
-    forecast: 'Light rain • Live Weather Feed',
-    providerName: 'OpenWeatherMap Live Radar'
+  const [liveWeather, setLiveWeather] = useState<WeatherReading>({
+    rainfall24h: 0,
+    temperature: 0,
+    humidity: 0,
+    windSpeed: 0,
+    soilMoisture: 0,
+    forecast: 'Fetching live meteorological data...',
+    source: 'Open-Meteo & OWM',
+    providerName: 'Open-Meteo / OWM Live'
   });
 
+  const [loadingWeather, setLoadingWeather] = useState<boolean>(true);
   const [simulating, setSimulating] = useState<boolean>(false);
-  const [simulationTriggered, setSimulationTriggered] = useState<boolean>(false);
 
-  // Fetch real OpenWeatherMap / Open-Meteo live weather data
+  // Fetch real OpenWeatherMap / Open-Meteo live weather data for Mawsynram / active village
   useEffect(() => {
+    let mounted = true;
     const fetchWeather = async () => {
-      try {
-        const res = await fetch('/api/weather');
-        if (res.ok) {
-          const data = await res.json();
-          setLiveWeather(data);
-        }
-      } catch (err) {
-        console.warn('Weather fetch fallback', err);
+      setLoadingWeather(true);
+      const target = villages[0] || { latitude: 25.298, longitude: 91.582 };
+      const data = await weatherService.getCurrentWeather(target.latitude, target.longitude);
+      if (mounted) {
+        setLiveWeather(data);
+        setLoadingWeather(false);
       }
     };
     fetchWeather();
-  }, []);
+    return () => { mounted = false; };
+  }, [villages]);
 
   // Single-Click Complete Disaster Simulator
   const handleSimulateDisaster = async () => {
     setSimulating(true);
     try {
-      const res = await fetch('/api/simulate-disaster', { method: 'POST' });
-      if (res.ok) {
-        setSimulationTriggered(true);
-      }
+      await fetch('/api/simulate-disaster', { method: 'POST' });
     } catch (err) {
       console.error(err);
     } finally {
@@ -66,50 +68,73 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
     }
   };
 
-  // Donut data: Overall Risk Overview
+  // 1. Dynamic Risk Distribution from live village records
+  const critCount = villages.filter(v => v.riskLevel === 'CRITICAL').length;
+  const highCount = villages.filter(v => v.riskLevel === 'HIGH').length;
+  const medCount  = villages.filter(v => v.riskLevel === 'MEDIUM').length;
+  const lowCount  = villages.filter(v => v.riskLevel === 'LOW').length;
+  const totalMonitoredAreas = villages.length || 1;
+
   const riskDonutData = [
-    { name: t.critical, value: 28, color: '#DC2626' },
-    { name: t.high, value: 45, color: '#EA580C' },
-    { name: t.medium, value: 32, color: '#D97706' },
-    { name: t.low, value: 23, color: '#10B981' }
+    { name: t.critical, value: critCount, color: '#DC2626' },
+    { name: t.high,     value: highCount, color: '#EA580C' },
+    { name: t.medium,   value: medCount,  color: '#D97706' },
+    { name: t.low,      value: lowCount,  color: '#10B981' }
   ];
 
-  // Donut data: Evacuation Accountability
-  const evacDonutData = [
-    { name: t.confirmedSafe, value: 9620, color: '#10B981' },
-    { name: t.unconfirmedAtRisk, value: 3230, color: '#DC2626' }
+  // 2. Strict Real Evacuation Accountability
+  // Only count evacuations if an authority order is genuinely active or households have checked in
+  const activeEvacVillages = villages.filter(v => 
+    v.evacuationStatus === 'IN_PROGRESS' || 
+    v.evacuationStatus === 'COMPLETED' || 
+    (v as any).evacuationOrderActive
+  );
+  
+  const hasActiveEvacuations = activeEvacVillages.length > 0;
+  const targetEvacPop = activeEvacVillages.reduce((sum, v) => sum + (v.estimatedPopulation || 0), 0);
+  
+  const confirmedSafePop = activeEvacVillages.reduce((sum, v) => {
+    let ratio = 0;
+    if (v.evacuationStatus === 'COMPLETED') ratio = 1.0;
+    else if (v.evacuationStatus === 'MOSTLY_EVACUATED') ratio = 0.85;
+    else if (v.evacuationStatus === 'IN_PROGRESS') ratio = 0.45;
+    return sum + Math.round((v.estimatedPopulation || 0) * ratio);
+  }, 0);
+  
+  const pendingEvacPop = Math.max(0, targetEvacPop - confirmedSafePop);
+  const safePercent = targetEvacPop > 0 ? Math.round((confirmedSafePop / targetEvacPop) * 100) : 100;
+
+  const evacDonutData = hasActiveEvacuations ? [
+    { name: t.confirmedSafe, value: confirmedSafePop, color: '#10B981' },
+    { name: t.unconfirmedAtRisk, value: pendingEvacPop, color: '#DC2626' }
+  ] : [
+    { name: 'Baseline Stable', value: 1, color: '#10B981' }
   ];
 
-  // Rescue priority ranking calculation
-  const rescuePriorities = [
-    { 
-      name: lang === 'hi' ? 'मौसिनराम गांव (Mawsynram)' : 'Mawsynram Village', 
-      estimated: 1800, 
-      evacuated: 1320, 
-      unconfirmed: 480, 
-      risk: lang === 'hi' ? 'अति गंभीर (94%)' : 'CRITICAL (94%)', 
-      priority: lang === 'hi' ? 'प्राथमिकता 1' : 'PRIORITY 1', 
-      road: lang === 'hi' ? 'NH-106 अवरुद्ध' : 'NH-106 BLOCKED' 
-    },
-    { 
-      name: lang === 'hi' ? 'सोहरा (Cherrapunjee)' : 'Sohra (Cherrapunjee)', 
-      estimated: 2200, 
-      evacuated: 1860, 
-      unconfirmed: 340, 
-      risk: lang === 'hi' ? 'उच्च जोखिम (86%)' : 'HIGH (86%)', 
-      priority: lang === 'hi' ? 'प्राथमिकता 2' : 'PRIORITY 2', 
-      road: lang === 'hi' ? 'सोहरा लिंक चेतावनी' : 'Sohra Link Warning' 
-    },
-    { 
-      name: lang === 'hi' ? 'थेरियात पहाड़ी ढलान' : 'Theiriat Slopes', 
-      estimated: 620, 
-      evacuated: 410, 
-      unconfirmed: 210, 
-      risk: lang === 'hi' ? 'उच्च जोखिम (82%)' : 'HIGH (82%)', 
-      priority: lang === 'hi' ? 'प्राथमिकता 3' : 'PRIORITY 3', 
-      road: lang === 'hi' ? 'सीमित संपर्क' : 'Access Limited' 
-    }
-  ];
+  // 3. Dynamic Rescue Priority Ranking derived from live risk scores
+  const highRiskVillages = [...villages]
+    .filter(v => v.riskLevel === 'CRITICAL' || v.riskLevel === 'HIGH')
+    .sort((a, b) => b.riskScore - a.riskScore)
+    .slice(0, 3);
+
+  const rescuePriorities = highRiskVillages.map((v, idx) => {
+    const isUnderOrder = v.evacuationStatus === 'IN_PROGRESS' || (v as any).evacuationOrderActive;
+    const evacuated = isUnderOrder ? Math.round((v.estimatedPopulation || 0) * 0.45) : 0;
+    const unconfirmed = isUnderOrder ? Math.max(0, (v.estimatedPopulation || 0) - evacuated) : (v.estimatedPopulation || 0);
+    const roadObj = roads.find(r => r.id.includes(v.id) || v.id.includes(r.id.split('-')[0]));
+    const roadStatus = roadObj ? `${roadObj.name} (${roadObj.status})` : (v.roadStatus === 'BLOCKED' ? 'Access Route BLOCKED' : 'Access Route Open');
+
+    return {
+      name: v.name,
+      estimated: v.estimatedPopulation || 0,
+      evacuated,
+      unconfirmed,
+      isUnderOrder,
+      risk: `${v.riskLevel} (${v.riskScore}%)`,
+      priority: lang === 'hi' ? `प्राथमिकता ${idx + 1}` : `PRIORITY ${idx + 1}`,
+      road: roadStatus
+    };
+  });
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto pb-8">
@@ -149,41 +174,93 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
         </div>
       </div>
 
-      {/* 2. Top Red Danger Alert Banner */}
-      <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 bg-red-100 rounded-lg text-red-600">
-            <AlertTriangle className="w-5 h-5 animate-bounce" />
+      {/* 2. Dynamic Alert Banner: Shows Red only if active alerts exist, otherwise Green normal surveillance */}
+      {alerts.length > 0 ? (
+        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-red-100 rounded-lg text-red-600">
+              <AlertTriangle className="w-5 h-5 animate-bounce" />
+            </div>
+            <div>
+              <h3 className="text-xs sm:text-sm font-bold text-red-800">
+                🚨 {alerts.length} Active Landslide Alerts Detected
+              </h3>
+              <p className="text-[11px] text-red-600 font-medium">
+                {lang === 'hi' ? 'प्रत्यक्ष वर्षा' : 'Live Rain'}: {liveWeather.rainfall24h} mm | {lang === 'hi' ? 'मृदा संतृप्ति' : 'Soil Saturation'}: {liveWeather.soilMoisture}% • {lang === 'hi' ? 'स्रोत: ओपन-मेटियो' : 'Source: Open-Meteo & Google DEM'}
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-xs sm:text-sm font-bold text-red-800">
-              {t.highRiskAlertBanner}
-            </h3>
-            <p className="text-[11px] text-red-600 font-medium">
-              {lang === 'hi' ? 'प्रत्यक्ष वर्षा' : 'Live Rain'}: {liveWeather.rainfall24h} mm | {lang === 'hi' ? 'मृदा संतृप्ति' : 'Soil Saturation'}: {liveWeather.soilMoisture}% • {lang === 'hi' ? 'आपातकालीन प्रोटोकॉल सक्रिय' : 'Evacuation Protocol Active'}
-            </p>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSmsModal(true)}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center gap-1.5"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              📱 Broadcast Risk SMS
+            </button>
+
+            <button
+              onClick={handleSimulateDisaster}
+              disabled={simulating}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center gap-1.5"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              {simulating ? t.simulatingDisaster : t.simulateDisasterBtn}
+            </button>
+
+            <button
+              onClick={() => onSelectPage('alerts')}
+              className="px-3 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 font-bold text-xs rounded-lg transition-all"
+            >
+              {t.viewAlerts} ({alerts.length})
+            </button>
           </div>
         </div>
+      ) : (
+        <div className="bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl px-4 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 bg-emerald-100 rounded-lg text-emerald-700">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-xs sm:text-sm font-bold text-emerald-900">
+                🟢 All 18 Monitored Hill Sectors Under Normal Surveillance (0 Active Emergency Alerts)
+              </h3>
+              <p className="text-[11px] text-emerald-700 font-medium">
+                Live Open-Meteo precipitation & Google Maps DEM telemetry active. All hill transport corridors normal.
+              </p>
+            </div>
+          </div>
 
-        <div className="flex items-center gap-2">
-          {/* THE SINGLE SIMULATE DISASTER EVENT BUTTON */}
-          <button
-            onClick={handleSimulateDisaster}
-            disabled={simulating}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center gap-1.5 animate-pulse"
-          >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            {simulating ? t.simulatingDisaster : t.simulateDisasterBtn}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSmsModal(true)}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center gap-1.5"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              📱 Demo SMS Dispatch
+            </button>
 
-          <button
-            onClick={() => onSelectPage('alerts')}
-            className="px-3 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-700 font-bold text-xs rounded-lg transition-all"
-          >
-            {t.viewAlerts}
-          </button>
+            <button
+              onClick={handleSimulateDisaster}
+              disabled={simulating}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-lg shadow-sm transition-all flex items-center gap-1.5"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              {simulating ? t.simulatingDisaster : t.simulateDisasterBtn}
+            </button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Demo SMS Broadcast Modal */}
+      <DemoSmsBroadcastModal
+        isOpen={showSmsModal}
+        onClose={() => setShowSmsModal(false)}
+        villages={villages}
+        shelters={shelters}
+      />
 
       {/* 3. Top Row: Satellite GIS Map (Left) + Overall Risk Overview & Districts (Right) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -227,36 +304,36 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
                 </ResponsiveContainer>
                 
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="font-extrabold text-2xl text-slate-900 leading-none">128</span>
+                  <span className="font-extrabold text-2xl text-slate-900 leading-none">{totalMonitoredAreas}</span>
                   <span className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">{t.totalAreas}</span>
                 </div>
               </div>
 
-              {/* Legend with numbers */}
+              {/* Legend with live numbers */}
               <div className="flex-1 space-y-1.5 text-xs">
                 <div className="flex justify-between items-center">
                   <span className="flex items-center gap-1.5 text-slate-600 font-medium">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#DC2626]"></span> {t.critical}
                   </span>
-                  <span className="font-bold text-slate-900 font-mono">28</span>
+                  <span className="font-bold text-slate-900 font-mono">{critCount}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="flex items-center gap-1.5 text-slate-600 font-medium">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#EA580C]"></span> {t.high}
                   </span>
-                  <span className="font-bold text-slate-900 font-mono">45</span>
+                  <span className="font-bold text-slate-900 font-mono">{highCount}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="flex items-center gap-1.5 text-slate-600 font-medium">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#D97706]"></span> {t.medium}
                   </span>
-                  <span className="font-bold text-slate-900 font-mono">32</span>
+                  <span className="font-bold text-slate-900 font-mono">{medCount}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="flex items-center gap-1.5 text-slate-600 font-medium">
                     <span className="w-2.5 h-2.5 rounded-full bg-[#10B981]"></span> {t.low}
                   </span>
-                  <span className="font-bold text-slate-900 font-mono">23</span>
+                  <span className="font-bold text-slate-900 font-mono">{lowCount}</span>
                 </div>
               </div>
             </div>
@@ -267,18 +344,17 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
             <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider mb-2.5">{t.districtsAtHighRisk}</h4>
             
             <div className="space-y-2 text-xs">
-              <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                <span className="font-semibold text-slate-800">{lang === 'hi' ? 'पश्चिम जयंतिया हिल्स' : 'West Jaintia Hills'}</span>
-                <span className="text-[#DC2626] font-bold">{t.critical.split(' ')[0]}</span>
-              </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-100">
-                <span className="font-semibold text-slate-800">{lang === 'hi' ? 'पूर्वी खासी हिल्स (मौसिनराम - सोहरा)' : 'East Khasi Hills (Mawsynram - Sohra)'}</span>
-                <span className="text-[#EA580C] font-bold">{t.high.split(' ')[0]}</span>
-              </div>
-              <div className="flex justify-between items-center py-1">
-                <span className="font-semibold text-slate-800">{lang === 'hi' ? 'री भोई' : 'Ri Bhoi'}</span>
-                <span className="text-[#EA580C] font-bold">{t.high.split(' ')[0]}</span>
-              </div>
+              {highRiskVillages.map((v) => (
+                <div key={v.id} className="flex justify-between items-center py-1 border-b border-slate-100 last:border-0">
+                  <span className="font-semibold text-slate-800 truncate max-w-[200px]">{v.name}</span>
+                  <span className={`font-bold ${v.riskLevel === 'CRITICAL' ? 'text-[#DC2626]' : 'text-[#EA580C]'}`}>
+                    {v.riskLevel} ({v.riskScore}%)
+                  </span>
+                </div>
+              ))}
+              {highRiskVillages.length === 0 && (
+                <div className="py-2 text-slate-500 text-center text-xs">All monitored sectors currently at Normal/Low risk.</div>
+              )}
             </div>
 
             <div className="pt-2 text-right">
@@ -308,7 +384,7 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
             </div>
             <div>
               <span className="font-bold text-slate-900 block text-xs">{t.villageSirens}</span>
-              <span className="text-[10px] text-red-600 font-bold">{t.sirensActive}</span>
+              <span className="text-[10px] text-red-600 font-bold">{alerts.filter(a => a.severity === 'CRITICAL').length > 0 ? '🚨 Siren Sounding' : 'Standby Mode'}</span>
             </div>
           </div>
 
@@ -318,7 +394,7 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
             </div>
             <div>
               <span className="font-bold text-slate-900 block text-xs">{t.loudspeakers}</span>
-              <span className="text-[10px] text-blue-700 font-bold">{t.loudspeakersActive}</span>
+              <span className="text-[10px] text-blue-700 font-bold">📢 Local Relays Active</span>
             </div>
           </div>
 
@@ -328,7 +404,7 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
             </div>
             <div>
               <span className="font-bold text-slate-900 block text-xs">{t.panchayatVans}</span>
-              <span className="text-[10px] text-amber-800 font-bold">{t.vansActive}</span>
+              <span className="text-[10px] text-amber-800 font-bold">🚐 Mobile Teams Ready</span>
             </div>
           </div>
 
@@ -338,7 +414,7 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
             </div>
             <div>
               <span className="font-bold text-slate-900 block text-xs">{t.citizenSmsApp}</span>
-              <span className="text-[10px] text-emerald-700 font-bold">{t.smsActive}</span>
+              <span className="text-[10px] text-emerald-700 font-bold">📱 Push & FCM Active</span>
             </div>
           </div>
         </div>
@@ -350,47 +426,68 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
         {/* Evacuation Accountability Donut (5 cols) */}
         <div className="md:col-span-5 bg-white border border-surface-border rounded-xl p-4 shadow-card flex flex-col justify-between">
           <div>
-            <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider mb-2">
-              {t.evacuationAccountability}
-            </h4>
-            
-            <div className="flex items-center gap-4 mt-2">
-              <div className="relative w-32 h-32 shrink-0 flex items-center justify-center">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={evacDonutData}
-                      innerRadius={36}
-                      outerRadius={52}
-                      paddingAngle={3}
-                      dataKey="value"
-                    >
-                      {evacDonutData.map((entry, index) => (
-                        <Cell key={`cell-evac-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-[8px] text-slate-400 font-bold uppercase">{t.estimatedPop}</span>
-                  <span className="font-extrabold text-sm text-slate-900">12,850</span>
-                  <span className="text-[8px] text-slate-500">{lang === 'hi' ? 'नागरिक' : 'People'}</span>
-                </div>
-              </div>
-
-              <div className="space-y-2 text-xs flex-1">
-                <div className="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
-                  <span className="text-[10px] text-emerald-800 font-bold block uppercase">{t.confirmedSafe}</span>
-                  <span className="font-extrabold text-sm text-emerald-900">9,620 (75%)</span>
-                </div>
-
-                <div className="p-2 bg-red-50 rounded-lg border border-red-100">
-                  <span className="text-[10px] text-red-800 font-bold block uppercase">{t.unconfirmedAtRisk}</span>
-                  <span className="font-extrabold text-sm text-red-900">3,230 (25%)</span>
-                </div>
-              </div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-bold text-xs text-slate-800 uppercase tracking-wider">
+                {t.evacuationAccountability}
+              </h4>
+              <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold ${
+                hasActiveEvacuations ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+              }`}>
+                {hasActiveEvacuations ? `${activeEvacVillages.length} Orders Active` : '0 Active Orders'}
+              </span>
             </div>
+            
+            {hasActiveEvacuations ? (
+              <div className="flex items-center gap-4 mt-2">
+                <div className="relative w-32 h-32 shrink-0 flex items-center justify-center">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={evacDonutData}
+                        innerRadius={36}
+                        outerRadius={52}
+                        paddingAngle={3}
+                        dataKey="value"
+                      >
+                        {evacDonutData.map((entry, index) => (
+                          <Cell key={`cell-evac-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                  
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-[8px] text-slate-400 font-bold uppercase">Target Pop</span>
+                    <span className="font-extrabold text-sm text-slate-900">{targetEvacPop.toLocaleString()}</span>
+                    <span className="text-[8px] text-slate-500">{lang === 'hi' ? 'नागरिक' : 'People'}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-xs flex-1">
+                  <div className="p-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                    <span className="text-[10px] text-emerald-800 font-bold block uppercase">{t.confirmedSafe}</span>
+                    <span className="font-extrabold text-sm text-emerald-900">{confirmedSafePop.toLocaleString()} ({safePercent}%)</span>
+                  </div>
+
+                  <div className="p-2 bg-red-50 rounded-lg border border-red-100">
+                    <span className="text-[10px] text-red-800 font-bold block uppercase">{t.unconfirmedAtRisk}</span>
+                    <span className="font-extrabold text-sm text-red-900">{pendingEvacPop.toLocaleString()} ({100 - safePercent}%)</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-xl space-y-2 my-2 text-center">
+                <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <p className="text-xs font-bold text-emerald-900">
+                  All 18 Monitored Sectors Under Baseline Surveillance
+                </p>
+                <p className="text-[10px] text-emerald-700 leading-tight">
+                  No active evacuation orders in effect. Evacuation accountability and shelter intake metrics activate when an emergency order is issued.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="pt-2 text-[10px] text-slate-500 italic">
@@ -406,7 +503,7 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
                 {t.rescuePriorityQueue}
               </h4>
               <span className="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 font-bold rounded-full">
-                {t.actionRequired}
+                {rescuePriorities.length} {t.actionRequired}
               </span>
             </div>
 
@@ -427,10 +524,10 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
 
                   <div className="text-right shrink-0">
                     <span className="text-xs font-extrabold text-red-600 block">
-                      {item.unconfirmed} {lang === 'hi' ? 'अपुष्ट नागरिक' : 'Unconfirmed'}
+                      {item.unconfirmed.toLocaleString()} {lang === 'hi' ? 'अपुष्ट नागरिक' : 'Unconfirmed'}
                     </span>
                     <span className="text-[10px] text-slate-400">
-                      {item.evacuated}/{item.estimated} {lang === 'hi' ? 'निकाले गए' : 'Evacuated'}
+                      {item.evacuated.toLocaleString()}/{item.estimated.toLocaleString()} {lang === 'hi' ? 'निकाले गए' : 'Evacuated'}
                     </span>
                   </div>
                 </div>
@@ -465,7 +562,7 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
               <div className="flex items-center gap-2.5">
                 <CloudRain className="w-8 h-8 text-blue-500" />
                 <div>
-                  <span className="font-bold text-xs text-slate-900 block">{liveWeather.forecast}</span>
+                  <span className="font-bold text-xs text-slate-900 block">{loadingWeather ? 'Connecting to meteorology stream...' : liveWeather.forecast}</span>
                   <span className="text-[11px] text-slate-500">{lang === 'hi' ? 'मौसिनराम केंद्र • पूर्वी खासी हिल्स' : 'Mawsynram Station • East Khasi Hills'}</span>
                 </div>
               </div>
@@ -527,22 +624,22 @@ export default function Dashboard({ villages, shelters, roads, alerts, emergency
             <div className="relative rounded-lg overflow-hidden border border-slate-200 aspect-video bg-slate-900">
               <img 
                 src="https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=400&q=80" 
-                alt="NH-106 Highway" 
+                alt="Nongpoh Valley" 
                 className="w-full h-full object-cover opacity-90"
               />
-              <span className="absolute bottom-1 left-1.5 bg-red-600/90 text-white text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">
-                CAM 03 • NH-106 ({lang === 'hi' ? 'अवरुद्ध' : 'Blocked'})
+              <span className="absolute bottom-1 left-1.5 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded font-mono">
+                CAM 03 • Nongpoh
               </span>
             </div>
 
             <div className="relative rounded-lg overflow-hidden border border-slate-200 aspect-video bg-slate-900">
               <img 
-                src="https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?auto=format&fit=crop&w=400&q=80" 
-                alt="Jaintia Hills pass" 
+                src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=400&q=80" 
+                alt="Gangtok Ridge" 
                 className="w-full h-full object-cover opacity-90"
               />
               <span className="absolute bottom-1 left-1.5 bg-black/70 text-white text-[9px] px-1.5 py-0.5 rounded font-mono">
-                CAM 04 • Jaintia Pass
+                CAM 04 • Gangtok
               </span>
             </div>
           </div>

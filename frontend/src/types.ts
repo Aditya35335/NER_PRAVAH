@@ -66,6 +66,7 @@ export interface Alert {
   villageId: string;
   riskScore: number;
   reason: string;
+  location?: string;
 }
 
 export interface Household {

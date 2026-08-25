@@ -1,16 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Settings, Key, ShieldCheck, Play, RefreshCw, 
-  HelpCircle, AlertTriangle, Cpu, Sliders, CheckCircle2 
+  HelpCircle, AlertTriangle, Cpu, Sliders, CheckCircle2, Database 
 } from 'lucide-react';
+import FirebaseDataViewer from '../components/FirebaseDataViewer';
+import { Village, Shelter, Road, Alert } from '../types';
 
 interface SettingsPageProps {
   demoMode: boolean;
   onRefresh: () => void;
   hasPermission: boolean;
+  villages?: Village[];
+  shelters?: Shelter[];
+  roads?: Road[];
+  alerts?: Alert[];
 }
 
-export default function SettingsPage({ demoMode, onRefresh, hasPermission }: SettingsPageProps) {
+export default function SettingsPage({ 
+  demoMode, 
+  onRefresh, 
+  hasPermission,
+  villages = [],
+  shelters = [],
+  roads = [],
+  alerts = []
+}: SettingsPageProps) {
   // Key state variables
   const [keys, setKeys] = useState<any>({
     IMD_API_KEY: '',
@@ -26,7 +40,7 @@ export default function SettingsPage({ demoMode, onRefresh, hasPermission }: Set
 
   const [maskedKeys, setMaskedKeys] = useState<any>({});
   const [providers, setProviders] = useState<any>({});
-  const [activeTab, setActiveTab] = useState<'demo' | 'api'>('demo');
+  const [activeTab, setActiveTab] = useState<'demo' | 'api' | 'firebase'>('firebase');
   
   // Custom demo variables
   const [selectedVillageId, setSelectedVillageId] = useState<string>('sohra');
@@ -209,11 +223,20 @@ export default function SettingsPage({ demoMode, onRefresh, hasPermission }: Set
       </div>
 
       {/* Tabs Row */}
-      <div className="flex gap-2 border-b border-brand-border/60 pb-px">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-px">
+        <button 
+          onClick={() => setActiveTab('firebase')}
+          className={`px-4 py-2 font-bold text-xs uppercase transition-all flex items-center gap-1.5 ${
+            activeTab === 'firebase' ? 'border-b-2 border-amber-500 text-amber-600 bg-amber-50/50 rounded-t-xl' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Database className="w-4 h-4" />
+          Cloud Database (Firebase Firestore)
+        </button>
         <button 
           onClick={() => setActiveTab('demo')}
           className={`px-4 py-2 font-bold text-xs uppercase transition-all flex items-center gap-1.5 ${
-            activeTab === 'demo' ? 'border-b-2 border-brand-accent text-brand-accent' : 'text-gray-400 hover:text-gray-300'
+            activeTab === 'demo' ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50/50 rounded-t-xl' : 'text-slate-500 hover:text-slate-800'
           }`}
         >
           <Sliders className="w-4 h-4" />
@@ -222,13 +245,23 @@ export default function SettingsPage({ demoMode, onRefresh, hasPermission }: Set
         <button 
           onClick={() => setActiveTab('api')}
           className={`px-4 py-2 font-bold text-xs uppercase transition-all flex items-center gap-1.5 ${
-            activeTab === 'api' ? 'border-b-2 border-brand-accent text-brand-accent' : 'text-gray-400 hover:text-gray-300'
+            activeTab === 'api' ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50/50 rounded-t-xl' : 'text-slate-500 hover:text-slate-800'
           }`}
         >
           <Key className="w-4 h-4" />
           API Credential management
         </button>
       </div>
+
+      {/* Tab: Firebase Firestore Cloud Database */}
+      {activeTab === 'firebase' && (
+        <FirebaseDataViewer
+          villages={villages}
+          shelters={shelters}
+          roads={roads}
+          alerts={alerts}
+        />
+      )}
 
       {/* Tab: Hackathon Simulator */}
       {activeTab === 'demo' && (

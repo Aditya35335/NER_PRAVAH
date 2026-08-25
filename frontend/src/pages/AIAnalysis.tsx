@@ -8,14 +8,26 @@ import {
   Tooltip, ResponsiveContainer, BarChart, Bar
 } from 'recharts';
 import { Language } from '../i18n/translations';
+import TerrainSimulation from '../components/TerrainSimulation';
 
 interface SectorResult {
   sectorId: string;
   locationName: string;
   stateName: string;
+  latitude: number;
+  longitude: number;
   riskScore: number;
   riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   metrics: { rainfall24h: number; soilMoisture: number; slopeAngle: number; elevation: number };
+  hourlyHistory?: Array<{
+    time: string;
+    hour: string;
+    rainfall: number;
+    soilMoisture: number;
+    temp: number;
+    riskScore: number;
+    FS: number;
+  }>;
   fsParameters: {
     c_prime: number;
     gamma: number;
@@ -86,20 +98,31 @@ export default function AIAnalysis({ lang = 'en' }: AIAnalysisProps) {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
-  // Track history of the selected sector
+  // Track 24-hour real history of the selected sector
   useEffect(() => {
     if (!selectedSector) return;
-    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setHistory(prev => {
-      const next = [...prev, {
-        time: timeStr,
-        riskScore: selectedSector.riskScore,
-        FS: selectedSector.fsParameters.FS,
-        rainfall: selectedSector.metrics.rainfall24h,
-        soilMoisture: selectedSector.metrics.soilMoisture
-      }];
-      return next.slice(-15);
-    });
+    if (selectedSector.hourlyHistory && selectedSector.hourlyHistory.length > 0) {
+      setHistory(selectedSector.hourlyHistory.map(h => ({
+        time: h.hour || h.time,
+        riskScore: h.riskScore,
+        FS: h.FS,
+        rainfall: h.rainfall,
+        soilMoisture: h.soilMoisture,
+        temp: h.temp,
+      })));
+    } else {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setHistory(prev => {
+        const next = [...prev, {
+          time: timeStr,
+          riskScore: selectedSector.riskScore,
+          FS: selectedSector.fsParameters.FS,
+          rainfall: selectedSector.metrics.rainfall24h,
+          soilMoisture: selectedSector.metrics.soilMoisture
+        }];
+        return next.slice(-15);
+      });
+    }
   }, [selectedSector?.locationName, lastScan.getTime()]);
 
   // Only show sectors with MEDIUM or higher risk (skip quiet / plains areas)
@@ -360,6 +383,20 @@ export default function AIAnalysis({ lang = 'en' }: AIAnalysisProps) {
                     </div>
                   </div>
                 </div>
+              )}
+
+              {/* 3D Landslide Simulation — shown for all sectors */}
+              {selectedSector && (
+                <TerrainSimulation
+                  latitude={selectedSector.latitude ?? 25.298}
+                  longitude={selectedSector.longitude ?? 91.582}
+                  locationName={selectedSector.locationName}
+                  slopeAngle={selectedSector.fsParameters.theta_deg}
+                  soilMoisture={selectedSector.metrics.soilMoisture}
+                  rainfall24h={selectedSector.metrics.rainfall24h}
+                  fs={selectedSector.fsParameters.FS}
+                  riskLevel={selectedSector.riskLevel}
+                />
               )}
             </>
           ) : (

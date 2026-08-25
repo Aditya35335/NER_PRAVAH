@@ -13,6 +13,7 @@ class ApiConfigManager {
     keys = {
         IMD_API_KEY: process.env.IMD_API_KEY || '',
         WEATHER_API_KEY: process.env.WEATHER_API_KEY || '',
+        GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY || '',
         SATELLITE_API_KEY: process.env.SATELLITE_API_KEY || '',
         BHUVAN_API_KEY: process.env.BHUVAN_API_KEY || '',
         MAP_API_KEY: process.env.MAP_API_KEY || '',
